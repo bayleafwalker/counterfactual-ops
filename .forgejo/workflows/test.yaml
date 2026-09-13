@@ -1,0 +1,11 @@
+name: tests
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: docker
+    container: python:3.12-slim
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update && apt-get install -y --no-install-recommends git
+      - run: python -m unittest discover -s tests -v
+      - run: python scripts/check_evidence.py

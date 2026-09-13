@@ -1,0 +1,10 @@
+__pycache__/
+*.egg-info/
+.venv/
+build/
+dist/
+.auditctl/
+.kctl/
+.sprintctl/*.db*
+.envrc.local
+evidence/.lock

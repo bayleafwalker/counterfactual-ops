@@ -1,0 +1,113 @@
+{
+  "schema": "cfo/v1",
+  "id": "enable-replay",
+  "objective": "Recover timed-out jobs with one durable business effect per logical job",
+  "choices": [
+    "enable-replay",
+    "repair-idempotency",
+    "keep-manual-recovery"
+  ],
+  "status_quo": "keep-manual-recovery",
+  "claim": {
+    "id": "replay-single-effect",
+    "statement": "Replaying one logical job produces exactly one durable database-local effect under the specified schedules.",
+    "kind": "requirement",
+    "predicate": "exactly-one-durable-effect-per-logical-job"
+  },
+  "context": {
+    "implementation": "split",
+    "implementation_version": "worker-v1",
+    "effect_type": "database-local",
+    "identity": "logical-job-id",
+    "retention_ticks": 10,
+    "replay_window_ticks": 9,
+    "workload": "one-job-serial-replay",
+    "observation_horizon_ticks": 9,
+    "dependencies": {
+      "database": "sqlite",
+      "transaction-mode": "single-process-serial",
+      "clock": "controlled-logical-ticks"
+    }
+  },
+  "challenges": [
+    "crash-gap",
+    "lost-ack",
+    "expired-identity"
+  ],
+  "experiments": [
+    {
+      "id": "normal",
+      "fault": "none",
+      "delay_ticks": 0,
+      "challenge": "crash-gap",
+      "cost": 1,
+      "outcomes": {
+        "supported": "enable-replay",
+        "counterexample": "repair-idempotency",
+        "inconclusive": "keep-manual-recovery"
+      },
+      "measurement": {
+        "authority": "sqlite-effects-table",
+        "population": 1,
+        "detection_limit": "every durable row for job-1 at end of schedule"
+      }
+    },
+    {
+      "id": "crash-gap",
+      "fault": "after_effect",
+      "delay_ticks": 0,
+      "challenge": "crash-gap",
+      "cost": 2,
+      "outcomes": {
+        "supported": "enable-replay",
+        "counterexample": "repair-idempotency",
+        "inconclusive": "keep-manual-recovery"
+      },
+      "measurement": {
+        "authority": "sqlite-effects-table",
+        "population": 1,
+        "detection_limit": "every durable row for job-1 at end of schedule"
+      }
+    },
+    {
+      "id": "lost-ack",
+      "fault": "after_commit",
+      "delay_ticks": 0,
+      "challenge": "lost-ack",
+      "cost": 2,
+      "outcomes": {
+        "supported": "enable-replay",
+        "counterexample": "repair-idempotency",
+        "inconclusive": "keep-manual-recovery"
+      },
+      "measurement": {
+        "authority": "sqlite-effects-table",
+        "population": 1,
+        "detection_limit": "every durable row for job-1 at end of schedule"
+      }
+    },
+    {
+      "id": "replay-at-9",
+      "fault": "none",
+      "delay_ticks": 9,
+      "challenge": "expired-identity",
+      "cost": 3,
+      "outcomes": {
+        "supported": "enable-replay",
+        "counterexample": "repair-idempotency",
+        "inconclusive": "keep-manual-recovery"
+      },
+      "measurement": {
+        "authority": "sqlite-effects-table",
+        "population": 1,
+        "detection_limit": "every durable row for job-1 at end of schedule"
+      }
+    }
+  ],
+  "recovery": {
+    "abort": "Stop further worker invocations; existing effects remain.",
+    "restore_configuration": "Disable replay; this does not undo durable effects.",
+    "restore_data": "Not established by this adapter; no data restore procedure is claimed.",
+    "compensate_effects": "Not established; duplicate effects need a separate compensation decision."
+  }
+}

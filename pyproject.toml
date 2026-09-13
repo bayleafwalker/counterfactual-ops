@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "counterfactual-ops"
+version = "0.1.0"
+description = "Executable challenges to operational decisions, with bounded evidence reuse"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+cfo = "counterfactual_ops.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["counterfactual_ops*"]
