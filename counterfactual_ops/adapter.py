@@ -13,19 +13,25 @@ def identity():
 
 
 def observe(path):
-    with sqlite3.connect(path) as db:
+    db = sqlite3.connect(path)
+    try:
         require_integrity = db.execute('PRAGMA integrity_check').fetchone()[0]
         if require_integrity != 'ok':
             raise ValueError('SQLite integrity check failed')
         rows = db.execute('SELECT job, amount FROM effects ORDER BY rowid').fetchall()
         completed = db.execute('SELECT job, expires FROM completed ORDER BY job').fetchall()
+    finally:
+        db.close()
     return {'effects': [list(r) for r in rows], 'completed': [list(r) for r in completed], 'effect_count': len(rows)}
 
 
 def schedule(directory, context, fault, delay):
     path = directory / 'state.sqlite'
-    with sqlite3.connect(path) as db:
+    db = sqlite3.connect(path)
+    try:
         db.executescript('CREATE TABLE effects(job TEXT NOT NULL, amount INTEGER NOT NULL); CREATE TABLE completed(job TEXT PRIMARY KEY, expires INTEGER NOT NULL);')
+    finally:
+        db.close()
     exits = []
     for position, now in ((fault, 0), ('none', delay)):
         result = subprocess.run([sys.executable, worker.__file__, str(path), context['implementation'], position, str(now), str(context['retention_ticks'])], capture_output=True, timeout=10)

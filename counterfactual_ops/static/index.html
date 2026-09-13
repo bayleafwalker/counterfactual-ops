@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Controlled experiments for operational decisions">
+  <title>Counterfactual Ops</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/">Counterfactual <span>Ops</span></a>
+    <nav>
+      <a href="#/">Decisions</a>
+      <a href="#/evidence">Evidence</a>
+      <button id="new-decision" class="quiet">New decision</button>
+    </nav>
+  </header>
+
+  <main id="app" aria-live="polite">
+    <section class="loading"><span></span><p>Reading the evidence ledger…</p></section>
+  </main>
+
+  <dialog id="decision-dialog">
+    <form method="dialog" id="decision-form">
+      <div class="dialog-head">
+        <div><p class="eyebrow">Committed before execution</p><h2>Create a decision</h2></div>
+        <button value="cancel" class="icon" aria-label="Close">×</button>
+      </div>
+      <p class="muted">Start from a valid decision contract. The app saves it under <code>decisions/</code>; review and commit it before running experiments.</p>
+      <textarea id="decision-json" spellcheck="false" aria-label="Decision JSON"></textarea>
+      <p id="form-error" class="error" role="alert"></p>
+      <div class="actions">
+        <button value="cancel" class="quiet">Cancel</button>
+        <button type="submit" value="default">Save decision</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" role="status"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

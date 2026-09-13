@@ -9,3 +9,4 @@ dist/
 !.sprintctl/backend.json
 .envrc.local
 evidence/.lock
+decisions/.decision-*

@@ -23,7 +23,10 @@ def preregister(path):
     files = [path, *sorted(package.glob('*.py'))]
     for file in files:
         relative = str(file.relative_to(root))
-        git('ls-files', '--error-unmatch', '--', relative, cwd=root)
+        try:
+            git('ls-files', '--error-unmatch', '--', relative, cwd=root)
+        except subprocess.CalledProcessError:
+            require(False, f'commit {relative} before intervention')
         committed = subprocess.check_output(['git', 'show', f'HEAD:{relative}'], cwd=root)
         require(committed == file.read_bytes(), f'commit {relative} before intervention')
     return {'commit': git('rev-parse', 'HEAD', cwd=root), 'decision_path': str(path.relative_to(root)),
@@ -65,10 +68,13 @@ def verify_result(result, store):
         return
     require(len(result.get('artifacts', [])) == 2, 'resolved result requires both authoritative databases')
     for observation, ref in zip(('control', 'observation'), result['artifacts']):
-        with sqlite3.connect(':memory:') as db:
+        db = sqlite3.connect(':memory:')
+        try:
             db.deserialize(store.artifact(ref))
             rows = [list(row) for row in db.execute('SELECT job, amount FROM effects ORDER BY rowid')]
             completed = [list(row) for row in db.execute('SELECT job, expires FROM completed ORDER BY job')]
+        finally:
+            db.close()
         require(rows == result[observation]['effects'] and len(rows) == result[observation]['effect_count']
                 and completed == result[observation]['completed'], 'recorded observation disagrees with authoritative artifact')
     expected = 'supported' if result['observation']['effects'] == [['job-1', 100]] else 'counterexample'

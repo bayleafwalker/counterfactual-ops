@@ -7,6 +7,31 @@ executable challenges, observations, and the conditions that permit evidence reu
 Its first adapter tests retry safety in a disposable SQLite worker. It owns no
 production execution, scheduler, credentials, or desired state.
 
+## Web application
+
+Run the local full-stack application from the repository root:
+
+```sh
+python3 -m counterfactual_ops.web
+# open http://127.0.0.1:8787
+```
+
+The dashboard shows the decision portfolio, current support, counterexamples,
+reassessment needs, and open obligations. A decision view exposes applicability
+conditions and executable challenges, runs individual or full experiment suites,
+and renders the append-only evidence timeline with downloadable authoritative
+SQLite artifacts. The evidence view presents the complete history.
+
+The browser can create a validated decision file under `decisions/`. Review and
+commit that file before running it: the same pre-registration rule applies to web
+and CLI execution. Mutating API routes accept JSON only, reject cross-origin
+requests, and cannot select arbitrary files or commands. The v0 server deliberately
+binds to loopback; it is a local operational workbench, not a multi-user service.
+
+Install with `pip install .` to use `cfo-web`. The JSON API is rooted at
+`/api/v1`: `overview`, `decisions`, `events`, `artifacts`, `runs`, and
+`annotations`. See [the API contract](docs/web-api.md).
+
 A split effect/completion commit duplicates an effect when the process exits
 between writes. An atomic transaction passes that challenge. Both implementations
 can duplicate effects after their deduplication record expires. The observer
