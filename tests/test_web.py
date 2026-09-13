@@ -1,4 +1,5 @@
 import http.client
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -8,6 +9,7 @@ import threading
 import unittest
 
 from counterfactual_ops.model import load
+from counterfactual_ops.engine import preregister
 from counterfactual_ops.web import Application, make_server
 
 
@@ -159,6 +161,53 @@ class WebApplicationTests(unittest.TestCase):
     def test_loopback_binding_is_enforced(self):
         with self.assertRaisesRegex(ValueError, "loopback"):
             make_server(self.root, self.root / "other", host="0.0.0.0", port=0)
+        with self.assertRaisesRegex(ValueError, "external HTTPS origin"):
+            make_server(self.root, self.root / "other", host="0.0.0.0", port=0,
+                        allow_non_loopback=True, trusted_proxy_header="X-authentik-username")
+
+    def test_trusted_proxy_mode_protects_reads_and_uses_external_origin(self):
+        self.stop_server()
+        self.server = make_server(
+            self.root, self.root / "proxy-evidence", port=0,
+            external_origin="https://counterfactual.example.test",
+            trusted_proxy_header="X-authentik-username",
+        )
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        status, error, _ = self.request("GET", "/api/v1/overview")
+        self.assertEqual(status, 401)
+        self.assertIn("authentication", error["error"])
+        status, health, _ = self.request("GET", "/api/v1/health")
+        self.assertEqual((status, health["status"]), (200, "ok"))
+        auth = {"X-authentik-username": "operator"}
+        status, overview, _ = self.request("GET", "/api/v1/overview", headers=auth)
+        self.assertEqual((status, overview["counts"]["decisions"]), (200, 5))
+        status, error, _ = self.request(
+            "POST", "/api/v1/runs", {"decision": "enable-replay", "experiment": "normal"},
+            {**auth, "Origin": "https://wrong.example.test"},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("cross-origin", error["error"])
+        status, result, _ = self.request(
+            "POST", "/api/v1/runs", {"decision": "enable-replay", "experiment": "normal"},
+            {**auth, "Origin": "https://counterfactual.example.test"},
+        )
+        self.assertEqual(status, 201)
+        self.assertIn("plan", result)
+
+    def test_hosted_mode_disables_definition_writes(self):
+        self.stop_server()
+        self.server = make_server(self.root, self.root / "hosted-evidence", port=0,
+                                  allow_decision_writes=False)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        decision = load(self.root / "examples/02-atomic.json")
+        decision["id"] = "hosted-draft"
+        status, error, _ = self.request("POST", "/api/v1/decisions", decision)
+        self.assertEqual(status, 400)
+        self.assertIn("immutable", error["error"])
+        status, overview, _ = self.request("GET", "/api/v1/overview")
+        self.assertFalse(overview["capabilities"]["decision_writes"])
 
     def test_invalid_decision_is_visible_as_an_api_error(self):
         directory = self.root / "decisions"
@@ -167,6 +216,33 @@ class WebApplicationTests(unittest.TestCase):
         status, error, _ = self.request("GET", "/api/v1/overview")
         self.assertEqual(status, 400)
         self.assertIn("invalid decision decisions/broken.json", error["error"])
+
+
+class ReleaseManifestTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        shutil.copytree(ROOT / "counterfactual_ops", self.root / "counterfactual_ops",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(ROOT / "examples", self.root / "examples")
+        files = [*sorted((self.root / "counterfactual_ops").glob("*.py")),
+                 *sorted((self.root / "examples").glob("*.json"))]
+        manifest = {"schema": "cfo-source/v1", "revision": "a" * 40,
+                    "files": {str(path.relative_to(self.root)): hashlib.sha256(path.read_bytes()).hexdigest()
+                              for path in files}}
+        (self.root / ".cfo-source.json").write_text(json.dumps(manifest))
+
+    def test_release_manifest_registers_exact_source(self):
+        provenance = preregister(self.root / "examples/02-atomic.json")
+        self.assertEqual(provenance["commit"], "a" * 40)
+        self.assertEqual(provenance["decision_path"], "examples/02-atomic.json")
+
+    def test_release_manifest_rejects_changed_decision(self):
+        with (self.root / "examples/02-atomic.json").open("a") as handle:
+            handle.write(" ")
+        with self.assertRaisesRegex(ValueError, "digest mismatch"):
+            preregister(self.root / "examples/02-atomic.json")
 
 
 if __name__ == "__main__":

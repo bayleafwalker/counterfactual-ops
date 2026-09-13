@@ -14,7 +14,18 @@ const showToast = message => {
 };
 
 async function api(path, options = {}) {
+  if (options.method === 'POST') {
+    const token = sessionStorage.getItem('cfo-write-token');
+    if (token) options.headers = {...(options.headers || {}), Authorization: `Bearer ${token}`};
+  }
   const response = await fetch(path, options);
+  if (response.status === 401 && options.method === 'POST' && !options._retried) {
+    const token = window.prompt('Write token');
+    if (token) {
+      sessionStorage.setItem('cfo-write-token', token);
+      return api(path, {...options, _retried: true});
+    }
+  }
   const value = await response.json();
   if (!response.ok) throw new Error(value.error || `Request failed (${response.status})`);
   return value;
@@ -40,7 +51,7 @@ function dashboard(data) {
   app.innerHTML = `
     <section class="hero">
       <div><p class="eyebrow">Operational decision laboratory</p><h1>Resolve the uncertainty that could change the decision.</h1><p class="lede">Design bounded experiments, observe authoritative state, and reuse results only while their conditions still apply.</p></div>
-      <button data-new>New decision</button>
+      ${data.capabilities.decision_writes ? '<button data-new>New decision</button>' : ''}
     </section>
     <section class="stats">
       ${[['Decisions',counts.decisions],['Supported',counts.supported],['Counterexamples',counts.counterexamples],['Reassessment',counts.reassessment],['Open obligations',counts.open_obligations]].map(([name, value]) => `<div class="stat"><strong>${value}</strong><span>${name}</span></div>`).join('')}
@@ -50,6 +61,7 @@ function dashboard(data) {
       ${data.decisions.map(item => `<a class="card" href="#/decisions/${encodeURIComponent(item.id)}"><div class="card-top"><div><h3>${escapeHtml(item.objective)}</h3><p class="muted">${escapeHtml(item.claim)}</p></div>${status(item.status)}</div><div class="meta"><span><code>${escapeHtml(item.implementation)}</code> · ${escapeHtml(item.implementation_version)}</span><span>${item.obligations} obligations →</span></div></a>`).join('') || '<div class="empty">No committed decisions found.</div>'}
     </section>`;
   document.querySelector('[data-new]')?.addEventListener('click', openDecision);
+  document.querySelector('#new-decision').hidden = !data.capabilities.decision_writes;
 }
 
 function obligationCards(assessment) {

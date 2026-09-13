@@ -1,8 +1,10 @@
-# Local web API
+# Web API
 
 The web application is a dependency-free HTTP/1.1 interface over the same decision
 engine and append-only store as the CLI. It listens on `127.0.0.1:8787` by default.
-V0 refuses non-loopback binding because it has no user authentication or TLS.
+Non-loopback binding requires both `--allow-non-loopback` and a token loaded with
+`--write-token-file`, or an HTTPS `--external-origin` paired with a
+`--trusted-proxy-header`. TLS terminates at the deployment gateway.
 
 | Method | Route | Purpose |
 | --- | --- | --- |
@@ -16,7 +18,10 @@ V0 refuses non-loopback binding because it has no user authentication or TLS.
 | `POST` | `/api/v1/annotations` | Append an unexpected effect, hypothesis, or resolution |
 
 Mutation bodies are JSON and limited to 1 MB. `Origin`, when present, must match
-the request host. Decisions are found only as direct JSON children of `decisions/`
+the request host. When a write token is configured, every mutation requires
+`Authorization: Bearer TOKEN`. Trusted proxy mode requires its asserted identity
+header for every route except health, so network policy must restrict access to
+that proxy. Decisions are found only as direct JSON children of `decisions/`
 and `examples/`; API callers identify them by validated decision ID. Artifact names
 must be lowercase SHA-256 digests. Static route fallback serves only the three
 packaged application assets.
@@ -37,7 +42,7 @@ the intervention.
 `kind` can also be `hypothesis` or `resolution`; a resolution includes a registered
 `choice`. An annotation appends history and never alters prior evidence.
 
-The server is suitable for one operator on a trusted workstation. It has no claim
-leasing, job queue, cancellation, authentication, or concurrent source-editing
-protocol. Those belong in a later multi-user service design rather than being
-implied by a development server.
+Hosted release mode disables decision creation. Definitions and source are baked
+into the digest-pinned image, while experiment results and annotations are written
+to persistent storage. The service has no claim leasing, job queue, cancellation,
+or concurrent execution protocol, so deployments run one replica.

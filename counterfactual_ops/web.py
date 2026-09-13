@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hmac
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -29,6 +30,10 @@ DECISION_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 class WebConfig:
     root: Path
     store: Path
+    write_token: str | None = None
+    allow_decision_writes: bool = True
+    external_origin: str | None = None
+    trusted_proxy_header: str | None = None
 
     @property
     def static(self) -> Path:
@@ -36,11 +41,22 @@ class WebConfig:
 
 
 class Application:
-    def __init__(self, root: Path, store: Path):
+    def __init__(self, root: Path, store: Path, write_token: str | None = None,
+                 allow_decision_writes: bool = True, external_origin: str | None = None,
+                 trusted_proxy_header: str | None = None):
         root = root.resolve()
-        if not (root / ".git").exists():
-            raise Invalid(f"repository root required: {root}")
-        self.config = WebConfig(root, store.resolve())
+        if not (root / ".git").exists() and not (root / ".cfo-source.json").is_file():
+            raise Invalid(f"versioned decision root required: {root}")
+        if write_token is not None and len(write_token) < 32:
+            raise Invalid("write token must contain at least 32 characters")
+        if external_origin is not None:
+            parsed = urlsplit(external_origin)
+            if parsed.scheme != "https" or not parsed.netloc or parsed.path:
+                raise Invalid("external origin must be an HTTPS origin without a path")
+        if trusted_proxy_header is not None and not re.fullmatch(r"[A-Za-z0-9-]+", trusted_proxy_header):
+            raise Invalid("trusted proxy header has invalid characters")
+        self.config = WebConfig(root, store.resolve(), write_token, allow_decision_writes,
+                                external_origin, trusted_proxy_header)
         self.store = Store(self.config.store)
 
     def decision_paths(self) -> list[Path]:
@@ -93,6 +109,8 @@ class Application:
         decisions = [self.summary(path, decision) for path, decision in self.decisions()]
         events = self.store.read()
         return {
+            "capabilities": {"decision_writes": self.config.allow_decision_writes,
+                             "authenticated_writes": self.config.write_token is not None},
             "decisions": decisions,
             "counts": {
                 "decisions": len(decisions),
@@ -135,6 +153,8 @@ class Application:
         return list(reversed(related))
 
     def save_decision(self, value: object) -> dict:
+        if not self.config.allow_decision_writes:
+            raise Invalid("decision definitions are immutable in hosted release mode")
         decision = validate(value)
         if not DECISION_ID_RE.fullmatch(decision["id"]):
             raise Invalid("decision id must be a lowercase filesystem-safe identifier")
@@ -201,7 +221,7 @@ class Application:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "CounterfactualOps/0.2"
+    server_version = "CounterfactualOps/0.3"
 
     @property
     def app(self) -> Application:
@@ -217,6 +237,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'")
         self.end_headers()
         self.wfile.write(payload)
@@ -243,6 +265,8 @@ class Handler(BaseHTTPRequestHandler):
             query = parse_qs(route.query)
             if path == "/api/v1/health":
                 self.json_response(HTTPStatus.OK, {"status": "ok", "events": len(self.app.store.read())})
+            elif not self.authorized():
+                self.json_response(HTTPStatus.UNAUTHORIZED, {"error": "authentication required"})
             elif path == "/api/v1/overview" or path == "/api/v1/decisions":
                 self.json_response(HTTPStatus.OK, self.app.overview())
             elif path.startswith("/api/v1/decisions/"):
@@ -263,8 +287,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         try:
-            if self.headers.get("Origin") not in (None, self.origin()):
+            if not self.same_origin():
                 raise Invalid("cross-origin mutation rejected")
+            if not self.authorized(mutation=True):
+                self.json_response(HTTPStatus.UNAUTHORIZED, {"error": "write authentication required"})
+                return
             path = urlsplit(self.path).path
             value = self.body()
             if path == "/api/v1/decisions":
@@ -285,9 +312,27 @@ class Handler(BaseHTTPRequestHandler):
         except (Invalid, ValueError, OSError, subprocess.SubprocessError) as exc:
             self.json_response(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
 
-    def origin(self) -> str:
-        host = self.headers.get("Host", "")
-        return f"http://{host}"
+    def same_origin(self) -> bool:
+        origin = self.headers.get("Origin")
+        if origin is None:
+            return True
+        if self.app.config.external_origin is not None:
+            return hmac.compare_digest(origin, self.app.config.external_origin)
+        parsed = urlsplit(origin)
+        return parsed.scheme in ("http", "https") and parsed.netloc == self.headers.get("Host", "")
+
+    def authorized(self, mutation: bool = False) -> bool:
+        proxy_header = self.app.config.trusted_proxy_header
+        if proxy_header is not None:
+            return bool(self.headers.get(proxy_header, "").strip())
+        expected = self.app.config.write_token
+        if expected is None:
+            return True
+        if not mutation:
+            return True
+        supplied = self.headers.get("Authorization", "")
+        prefix = "Bearer "
+        return supplied.startswith(prefix) and hmac.compare_digest(supplied[len(prefix):], expected)
 
     def artifact(self, ref: str) -> None:
         if not ARTIFACT_RE.fullmatch(ref):
@@ -299,6 +344,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "private, immutable")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
         self.wfile.write(payload)
 
@@ -314,6 +361,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-cache")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'")
         self.end_headers()
         self.wfile.write(payload)
@@ -327,22 +376,43 @@ class Server(ThreadingHTTPServer):
         self.app = app
 
 
-def make_server(root: Path, store: Path, host: str = "127.0.0.1", port: int = 8787) -> Server:
+def make_server(root: Path, store: Path, host: str = "127.0.0.1", port: int = 8787,
+                *, allow_non_loopback: bool = False, write_token: str | None = None,
+                allow_decision_writes: bool = True, external_origin: str | None = None,
+                trusted_proxy_header: str | None = None) -> Server:
     if host not in ("127.0.0.1", "::1", "localhost"):
-        raise Invalid("v0 web server only binds to a loopback address")
-    return Server((host, port), Application(root, store))
+        if not allow_non_loopback:
+            raise Invalid("non-loopback binding requires --allow-non-loopback")
+        if write_token is None and trusted_proxy_header is None:
+            raise Invalid("non-loopback binding requires write authentication")
+        if trusted_proxy_header is not None and external_origin is None:
+            raise Invalid("trusted proxy mode requires an external HTTPS origin")
+    return Server((host, port), Application(root, store, write_token, allow_decision_writes,
+                                            external_origin, trusted_proxy_header))
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Counterfactual Ops local web application")
+    parser = argparse.ArgumentParser(description="Counterfactual Ops web application")
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--store", type=Path, default=Path("evidence"))
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8787)
+    parser.add_argument("--allow-non-loopback", action="store_true")
+    parser.add_argument("--write-token-file", type=Path)
+    parser.add_argument("--immutable-decisions", action="store_true")
+    parser.add_argument("--external-origin")
+    parser.add_argument("--trusted-proxy-header")
     args = parser.parse_args(argv)
     store = args.store if args.store.is_absolute() else args.root / args.store
     try:
-        server = make_server(args.root, store, args.host, args.port)
+        token = None
+        if args.write_token_file:
+            token = args.write_token_file.read_text(encoding="utf-8").strip()
+        server = make_server(args.root, store, args.host, args.port,
+                             allow_non_loopback=args.allow_non_loopback, write_token=token,
+                             allow_decision_writes=not args.immutable_decisions,
+                             external_origin=args.external_origin,
+                             trusted_proxy_header=args.trusted_proxy_header)
     except (Invalid, OSError) as exc:
         parser.error(str(exc))
     print(f"Counterfactual Ops: http://{args.host}:{server.server_port}")

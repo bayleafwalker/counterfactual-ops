@@ -25,8 +25,13 @@ SQLite artifacts. The evidence view presents the complete history.
 The browser can create a validated decision file under `decisions/`. Review and
 commit that file before running it: the same pre-registration rule applies to web
 and CLI execution. Mutating API routes accept JSON only, reject cross-origin
-requests, and cannot select arbitrary files or commands. The v0 server deliberately
-binds to loopback; it is a local operational workbench, not a multi-user service.
+requests, and cannot select arbitrary files or commands. The default server
+deliberately binds to loopback.
+
+The hosted image embeds a source manifest tied to its Git revision, serves only
+the release's immutable decision definitions, and accepts requests only from an
+identity-aware trusted proxy. Its evidence ledger lives on persistent storage. TLS terminates at
+the deployment gateway.
 
 Install with `pip install .` to use `cfo-web`. The JSON API is rooted at
 `/api/v1`: `overview`, `decisions`, `events`, `artifacts`, `runs`, and

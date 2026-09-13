@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -13,7 +14,13 @@ def git(*args, cwd):
 
 def preregister(path):
     path = Path(path).resolve()
-    root = Path(git('rev-parse', '--show-toplevel', cwd=path.parent))
+    try:
+        root = Path(git('rev-parse', '--show-toplevel', cwd=path.parent))
+    except (OSError, subprocess.CalledProcessError):
+        root = next((parent for parent in (path.parent, *path.parents)
+                     if (parent / '.cfo-source.json').is_file()), None)
+        require(root is not None, 'decision must belong to a Git checkout or signed release source tree')
+        return preregister_release(path, root)
     installed = Path(__file__).resolve().parent
     package = root / 'counterfactual_ops'
     require(package.is_dir(), 'decision repository must contain the adapter source')
@@ -31,6 +38,36 @@ def preregister(path):
         require(committed == file.read_bytes(), f'commit {relative} before intervention')
     return {'commit': git('rev-parse', 'HEAD', cwd=root), 'decision_path': str(path.relative_to(root)),
             'adapter_digest': adapter.identity(), 'sqlite_version': sqlite3.sqlite_version}
+
+
+def preregister_release(path, root):
+    try:
+        manifest = json.loads((root / '.cfo-source.json').read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as exc:
+        require(False, f'invalid release source manifest: {exc}')
+    require(isinstance(manifest, dict) and set(manifest) == {'schema', 'revision', 'files'},
+            'invalid release source manifest shape')
+    require(manifest['schema'] == 'cfo-source/v1' and isinstance(manifest['revision'], str)
+            and len(manifest['revision']) == 40 and isinstance(manifest['files'], dict),
+            'invalid release source manifest')
+    relative = str(path.relative_to(root))
+    required = [relative, *[str(item.relative_to(root)) for item in sorted((root / 'counterfactual_ops').glob('*.py'))]]
+    installed = Path(__file__).resolve().parent
+    for name in required:
+        file = root / name
+        require(name in manifest['files'] and file.is_file(), f'release source is unregistered: {name}')
+        actual = hashlib.sha256(file.read_bytes()).hexdigest()
+        require(hmac_compare(actual, manifest['files'][name]), f'release source digest mismatch: {name}')
+    for source in sorted(installed.glob('*.py')):
+        release_source = root / 'counterfactual_ops' / source.name
+        require(release_source.is_file() and release_source.read_bytes() == source.read_bytes(),
+                f'installed adapter differs from release source: {source.name}')
+    return {'commit': manifest['revision'], 'decision_path': relative,
+            'adapter_digest': adapter.identity(), 'sqlite_version': sqlite3.sqlite_version}
+
+
+def hmac_compare(actual, expected):
+    return isinstance(expected, str) and len(expected) == 64 and actual == expected
 
 
 def run(path, store, experiment_id=None, all_experiments=False):

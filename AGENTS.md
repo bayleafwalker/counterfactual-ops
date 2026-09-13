@@ -10,7 +10,7 @@ append-only evidence. Do not add production connections or arbitrary executable
 commands to decision files. No confidence scores or agent rankings.
 
 Run `python3 -m unittest discover -s tests -v` after changing executable behavior.
-The web application must remain loopback-only until authentication and TLS exist.
+Non-loopback web deployment requires authenticated mutations and gateway TLS.
 Keep API decision lookup and static serving allowlisted; browser input must never
 become a filesystem path, subprocess command, or SQL fragment.
 Commit definitions and adapter sources before `python3 scripts/evaluate.py`.
