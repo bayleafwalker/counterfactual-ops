@@ -5,6 +5,7 @@ build/
 dist/
 .auditctl/
 .kctl/
-.sprintctl/*.db*
+.sprintctl/*
+!.sprintctl/backend.json
 .envrc.local
 evidence/.lock
