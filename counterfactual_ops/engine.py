@@ -4,7 +4,7 @@ import sqlite3
 import subprocess
 import tempfile
 from . import adapter
-from .model import digest, load, require, select
+from .model import digest, load, require, select, validate
 
 
 def git(*args, cwd):
@@ -58,9 +58,29 @@ def signature(experiment):
     return digest({k: experiment[k] for k in ('challenge', 'fault', 'delay_ticks', 'measurement')})
 
 
+def verify_result(result, store):
+    """Recheck the recorded assertion against the retained authoritative state."""
+    require(result['outcome'] in ('supported', 'counterexample', 'inconclusive'), 'unknown result outcome')
+    if result['outcome'] == 'inconclusive':
+        return
+    require(len(result.get('artifacts', [])) == 2, 'resolved result requires both authoritative databases')
+    for observation, ref in zip(('control', 'observation'), result['artifacts']):
+        with sqlite3.connect(':memory:') as db:
+            db.deserialize(store.artifact(ref))
+            rows = [list(row) for row in db.execute('SELECT job, amount FROM effects ORDER BY rowid')]
+            completed = [list(row) for row in db.execute('SELECT job, expires FROM completed ORDER BY job')]
+        require(rows == result[observation]['effects'] and len(rows) == result[observation]['effect_count']
+                and completed == result[observation]['completed'], 'recorded observation disagrees with authoritative artifact')
+    expected = 'supported' if result['observation']['effects'] == [['job-1', 100]] else 'counterexample'
+    require(result['outcome'] == expected, 'recorded outcome disagrees with authoritative assertion')
+
+
 def assess(decision, store):
     events = store.read()
     plans = {e['id']: e['data'] for e in events if e['kind'] == 'plan'}
+    for plan in plans.values():
+        validate(plan['decision'])
+        require(plan.get('decision_digest') == digest(plan['decision']), 'plan definition digest mismatch')
     support, counterexamples, stale, incomplete = set(), [], [], []
     completed = set()
     relevant_plans = set()
@@ -68,6 +88,7 @@ def assess(decision, store):
         if event['kind'] != 'result':
             continue
         result = event['data']
+        verify_result(result, store)
         require(result['plan'] in plans, 'result references unknown plan')
         plan = plans[result['plan']]
         old = plan['decision']

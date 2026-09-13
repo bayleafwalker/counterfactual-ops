@@ -1,0 +1,51 @@
+{
+  "exercise": "mechanical-acceptance-v1",
+  "results": [
+    {
+      "decision": "enable-replay",
+      "status": "counterexample",
+      "events_added": 5,
+      "counterexamples": 1,
+      "stale_results": 0
+    },
+    {
+      "decision": "enable-atomic-replay",
+      "status": "supported-under-tested-conditions",
+      "events_added": 5,
+      "counterexamples": 0,
+      "stale_results": 4
+    },
+    {
+      "decision": "enable-scheduled-recovery",
+      "status": "supported-under-tested-conditions",
+      "events_added": 0,
+      "counterexamples": 0,
+      "stale_results": 4
+    },
+    {
+      "decision": "enable-replay-after-transaction-change",
+      "status": "needs-reassessment",
+      "events_added": 0,
+      "counterexamples": 0,
+      "stale_results": 8
+    },
+    {
+      "decision": "extend-replay-window",
+      "status": "counterexample",
+      "events_added": 6,
+      "counterexamples": 1,
+      "stale_results": 8
+    }
+  ],
+  "decision_errors": 0,
+  "missed_defects": 0,
+  "unnecessary_healthy_blocks": 0,
+  "reuse_experiments": 0,
+  "experiment_pairs": 13,
+  "elapsed_machine_seconds": 2.0574,
+  "evidence_bytes": 93650,
+  "definition_bytes": 17452,
+  "human_investigation_effort": null,
+  "human_maintenance_cost": null,
+  "comparative_advantage": "unmeasured; see docs/evaluation.md and docs/baseline-runbook.md"
+}

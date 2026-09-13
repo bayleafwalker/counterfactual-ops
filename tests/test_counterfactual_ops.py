@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from counterfactual_ops import adapter
 from counterfactual_ops.engine import assess
-from counterfactual_ops.model import Invalid, load, select, validate
+from counterfactual_ops.model import Invalid, digest, load, select, validate
 from counterfactual_ops.store import Store
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -120,7 +120,7 @@ class StoreTests(unittest.TestCase):
 
     def test_pending_plan_survives_interrupted_runner(self):
         decision = load(ROOT / 'examples/02-atomic.json')
-        self.store.append('plan', {'decision': decision, 'experiment_ids': ['normal']})
+        self.store.append('plan', {'decision': decision, 'decision_digest': digest(decision), 'experiment_ids': ['normal']})
         result = assess(decision, self.store)
         self.assertEqual(result['status'], 'unresolved')
         self.assertEqual(len(result['incomplete_observation_windows']), 1)
@@ -205,11 +205,34 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(after['unexpected_consequences_awaiting_review'], [])
         self.assertEqual(after['status'], 'counterexample')
 
+    def test_hypothesis_never_establishes_support(self):
+        plan = self.cli('run', 'examples/01-split.json')['plan']
+        event = self.cli('hypothesis', plan, '--note', 'Maybe the transaction is atomic')
+        self.assertEqual(event['data']['explanation_status'], 'suspected-explanation')
+        self.assertEqual(self.cli('assess', 'examples/01-split.json')['status'], 'unresolved')
+
+    def test_outcome_cannot_disagree_with_authoritative_artifact(self):
+        self.cli('run', 'examples/01-split.json', '--all')
+        path = self.root / 'evidence/events.jsonl'
+        events = [json.loads(line) for line in path.read_text().splitlines()]
+        previous = None
+        for event in events:
+            if event['kind'] == 'result' and event['data']['outcome'] == 'counterexample':
+                event['data']['outcome'] = 'supported'
+            event['previous'] = previous
+            del event['hash']
+            event['hash'] = digest(event)
+            previous = event['hash']
+        path.write_text(''.join(json.dumps(event) + '\n' for event in events))
+        result = subprocess.run([sys.executable, '-m', 'counterfactual_ops', 'assess', 'examples/01-split.json'], cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('authoritative assertion', result.stderr)
+
     def test_observation_failure_is_inconclusive_not_support(self):
         decision = load(self.root / 'examples/02-atomic.json')
         store = Store(self.root / 'other-evidence')
         provenance = {'adapter_digest': adapter.identity(), 'sqlite_version': __import__('sqlite3').sqlite_version}
-        plan = store.append('plan', {'decision': decision, 'provenance': provenance, 'experiment_ids': ['normal']})
+        plan = store.append('plan', {'decision': decision, 'decision_digest': digest(decision), 'provenance': provenance, 'experiment_ids': ['normal']})
         store.append('result', {'plan': plan['id'], 'experiment_id': 'normal', 'outcome': 'inconclusive', 'error': 'timeout', 'artifacts': []})
         result = assess(decision, store)
         self.assertEqual(result['status'], 'unresolved')

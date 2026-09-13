@@ -1,0 +1,84 @@
+{
+  "schema_version": "test-context/v1",
+  "id": "cfo.replay.evidence",
+  "owner_repo": "counterfactual-ops",
+  "subject": "bounded-replay-evidence",
+  "contract_ref": {
+    "doc_id": "counterfactual-ops.contract",
+    "revision": "sha256:522dc5bcf57166ef231f4581c0ece98f6786bf9c6f4d276def602810f75073f2"
+  },
+  "source_of_truth": "retained-sqlite-effects-and-append-only-events",
+  "depth": 1,
+  "backends": [
+    "sqlite"
+  ],
+  "actors": [
+    "worker",
+    "observer",
+    "decision-author"
+  ],
+  "initial_state": [
+    "empty disposable effect and completion tables",
+    "committed decision and adapter source"
+  ],
+  "operations": [
+    {
+      "name": "intervene-and-replay",
+      "actors": [
+        "worker"
+      ],
+      "synchronization": "process-exit-at-transaction-boundary"
+    },
+    {
+      "name": "observe-and-assess",
+      "actors": [
+        "observer"
+      ],
+      "synchronization": "after-both-processes-exit"
+    }
+  ],
+  "consistency": {
+    "target": "application-invariant",
+    "object": "logical-job-effects"
+  },
+  "assumptions": {
+    "isolation": "single-writer-sqlite",
+    "clock": "controlled-logical-time",
+    "fairness": "not-applicable"
+  },
+  "bounds": {
+    "logical_jobs": 1,
+    "attempts": 2,
+    "replay_ticks": 10
+  },
+  "invariants": [
+    "pre-registration-before-intervention",
+    "exactly-one-durable-effect-under-supported-schedules",
+    "inapplicable-evidence-does-not-support-current-decision",
+    "counterexamples-survive-resolution",
+    "retained-artifact-agrees-with-observation"
+  ],
+  "faults": [
+    "exit-after-effect-before-completion",
+    "exit-after-commit-before-ack",
+    "replay-at-expiry",
+    "artifact-tampering",
+    "interrupted-observation"
+  ],
+  "oracles": [
+    "independent-effects-table-query",
+    "paired-no-fault-control",
+    "hash-chain",
+    "exact-applicability-predicate"
+  ],
+  "implementation_anchors": [
+    "counterfactual_ops/worker.py:execute",
+    "counterfactual_ops/adapter.py:experiment",
+    "counterfactual_ops/engine.py:assess"
+  ],
+  "expansions": [
+    "unit-test",
+    "fault-scenario",
+    "artifact-contract"
+  ]
+}

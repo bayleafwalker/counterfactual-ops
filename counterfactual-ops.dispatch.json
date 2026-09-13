@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "repo_id": "counterfactual-ops",
+  "authority_repo_uuid": "de3bfd74-28bd-5f49-a57f-926d559f0ca6",
+  "adoption_level": "guidance-only",
+  "routing": {
+    "default_harness": "caller",
+    "default_model_alias": "caller",
+    "action_classes": {
+      "verify": {
+        "enabled": true
+      }
+    }
+  },
+  "skills": {
+    "selected": [
+      "code-change-verification",
+      "verify-state-protocols"
+    ],
+    "overlays": [
+      ".agents/overlays/replay.md"
+    ]
+  },
+  "scope": {
+    "allowed_path_roots": [
+      "counterfactual_ops/",
+      "tests/",
+      "scripts/",
+      "examples/",
+      "docs/",
+      "evidence/",
+      "verification/"
+    ],
+    "out_of_scope": [
+      "production execution, scheduling, credentials, and desired state"
+    ]
+  },
+  "risk_surfaces": [
+    {
+      "id": "replay-evidence",
+      "paths": [
+        "counterfactual_ops/**",
+        "examples/**",
+        "evidence/**"
+      ],
+      "skills": [
+        "verify-state-protocols"
+      ],
+      "context_ids": [
+        "cfo.replay.evidence"
+      ],
+      "default_depth": 1,
+      "required_on_change": true
+    }
+  ],
+  "verification": {
+    "command_families": [
+      "unit",
+      "evidence"
+    ],
+    "targeted_first": true,
+    "commands": [
+      "python3 -m unittest discover -s tests -v",
+      "python3 scripts/check_evidence.py --history"
+    ]
+  },
+  "hooks": {
+    "level": "verification",
+    "publishers": [
+      "git"
+    ]
+  }
+}
