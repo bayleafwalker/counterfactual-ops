@@ -10,6 +10,7 @@ import unittest
 
 from counterfactual_ops.model import load
 from counterfactual_ops.engine import preregister
+from counterfactual_ops.hosted import seed_evidence
 from counterfactual_ops.web import Application, make_server
 
 
@@ -182,6 +183,7 @@ class WebApplicationTests(unittest.TestCase):
         auth = {"X-authentik-username": "operator"}
         status, overview, _ = self.request("GET", "/api/v1/overview", headers=auth)
         self.assertEqual((status, overview["counts"]["decisions"]), (200, 5))
+        self.assertTrue(overview["capabilities"]["authenticated_writes"])
         status, error, _ = self.request(
             "POST", "/api/v1/runs", {"decision": "enable-replay", "experiment": "normal"},
             {**auth, "Origin": "https://wrong.example.test"},
@@ -243,6 +245,17 @@ class ReleaseManifestTests(unittest.TestCase):
             handle.write(" ")
         with self.assertRaisesRegex(ValueError, "digest mismatch"):
             preregister(self.root / "examples/02-atomic.json")
+
+    def test_seed_evidence_copies_content_without_metadata(self):
+        seed = self.root / "seed"
+        store = self.root / "store"
+        (seed / "artifacts").mkdir(parents=True)
+        (seed / "events.jsonl").write_text("event\n")
+        (seed / "artifacts" / "one").write_bytes(b"artifact")
+        store.mkdir()
+        seed_evidence(seed, store)
+        self.assertEqual((store / "events.jsonl").read_text(), "event\n")
+        self.assertEqual((store / "artifacts" / "one").read_bytes(), b"artifact")
 
 
 if __name__ == "__main__":

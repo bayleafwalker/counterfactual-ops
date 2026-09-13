@@ -51,7 +51,8 @@ class Application:
             raise Invalid("write token must contain at least 32 characters")
         if external_origin is not None:
             parsed = urlsplit(external_origin)
-            if parsed.scheme != "https" or not parsed.netloc or parsed.path:
+            if (parsed.scheme != "https" or not parsed.netloc or parsed.path
+                    or parsed.query or parsed.fragment or parsed.username is not None):
                 raise Invalid("external origin must be an HTTPS origin without a path")
         if trusted_proxy_header is not None and not re.fullmatch(r"[A-Za-z0-9-]+", trusted_proxy_header):
             raise Invalid("trusted proxy header has invalid characters")
@@ -110,7 +111,8 @@ class Application:
         events = self.store.read()
         return {
             "capabilities": {"decision_writes": self.config.allow_decision_writes,
-                             "authenticated_writes": self.config.write_token is not None},
+                             "authenticated_writes": (self.config.write_token is not None
+                                                      or self.config.trusted_proxy_header is not None)},
             "decisions": decisions,
             "counts": {
                 "decisions": len(decisions),

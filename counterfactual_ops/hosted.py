@@ -8,13 +8,25 @@ import sys
 from .web import main as web_main
 
 
+def seed_evidence(seed: Path, store: Path) -> None:
+    """Copy seed content without applying image directory metadata to a PVC."""
+    for source in seed.rglob("*"):
+        relative = source.relative_to(seed)
+        target = store / relative
+        if source.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+        elif source.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
+
+
 def main(argv: list[str] | None = None) -> int:
     root = Path("/app")
     store = Path("/data/evidence")
     seed = root / "evidence"
     store.mkdir(parents=True, exist_ok=True)
     if not (store / "events.jsonl").exists() and seed.is_dir():
-        shutil.copytree(seed, store, dirs_exist_ok=True)
+        seed_evidence(seed, store)
     external_origin = os.environ.get("CFO_EXTERNAL_ORIGIN")
     if not external_origin:
         raise SystemExit("CFO_EXTERNAL_ORIGIN is required")
