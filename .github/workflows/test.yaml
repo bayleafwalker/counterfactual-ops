@@ -18,3 +18,30 @@ jobs:
           python-version: '${{ matrix.python }}'
       - run: python -m unittest discover -s tests -v
       - run: python scripts/check_evidence.py --history
+
+  # TS-6: committed auditctl shards are authoritative evidence until the S4
+  # evidence-home import and must not be rewritten. This is a separate
+  # family from check_evidence.py above, which covers this repo's own
+  # evidence/**/events.jsonl append-only contract, not the auditctl shards
+  # under _artifacts/counterfactual-ops/audit/*.ndjson. Fetches the checker
+  # from agentops (public), pinned to a specific commit.
+  append-only-shards:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout agentops at a pinned commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: bayleafwalker/agentops
+          ref: 775e9c0fc35aa4d6d29f3a087a8b913acc09ffac
+          path: agentops-contracts
+
+      - name: check
+        run: |
+          python3 agentops-contracts/scripts/check_append_only_shards.py \
+            --base "origin/${{ github.event.pull_request.base.ref }}" \
+            --head "${{ github.event.pull_request.head.sha }}"
